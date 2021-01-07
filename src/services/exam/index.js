@@ -66,9 +66,28 @@ router.post("/exam/start", async (req, res, next) => {
       const shuffledQuestions = questions.sort(() => Math.random() - 0.5);
       //select the first 5 question from the random sorted questions
       const selectedQuestions = [];
-      for (let i = 0; i < noQues; i++) {
-        selectedQuestions.push(shuffledQuestions[i]);
+      //if duration is input instead of number of question add question based on
+      //duration
+      if (req.query.duration) {
+        let temp = 0;
+        while (temp <= req.query.duration) {
+          const index = Math.floor(
+            Math.random() * Math.floor(questions.length)
+          );
+          temp += shuffledQuestions[index].duration;
+          if (temp > req.query.duration) {
+            break;
+          } else {
+            selectedQuestions.push(shuffledQuestions[index]);
+            shuffledQuestions.splice(index, 1);
+          }
+        }
+      } else {
+        for (let i = 0; i < noQues; i++) {
+          selectedQuestions.push(shuffledQuestions[i]);
+        }
       }
+
       //calculate total duration for each question
       let totalDuration = 0;
       selectedQuestions.forEach((question) => {
