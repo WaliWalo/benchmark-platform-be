@@ -2,7 +2,7 @@ const express = require("express");
 const router = express.Router();
 const Joi = require("joi");
 const { getQuestions, getExams, writeExams } = require("../../lib/utilities");
-
+const uniqid = require("uniqid");
 const validateExamInput = (dataToValidate) => {
   const schema = Joi.object().keys({
     candidateName: Joi.string().min(3).max(30).required(),
@@ -47,6 +47,7 @@ const validateExamInput = (dataToValidate) => {
 //     }
 router.post("/exam/start", async (req, res, next) => {
   try {
+    //validate candidateName and name
     const { error } = validateExamInput(req.body);
     if (error) {
       let err = new Error();
@@ -54,13 +55,48 @@ router.post("/exam/start", async (req, res, next) => {
       err.httpStatusCode = 400;
       next(err);
     } else {
-      const questions = await getQuestions();
-      const questionsIndex = [];
-      for (let i = 0; i < 5; i++) {
-        questionsIndex.push(Math.random(0, questions.length));
+      //allow user to input the number of questions
+      let noQues = 5;
+      if (req.query.noQues) {
+        noQues = req.query.noQues;
       }
-      console.log(questions);
-      res.status(200).send(questions);
+      //get all questions
+      const questions = await getQuestions();
+      //shuffle question by sorting it randomly
+      const shuffledQuestions = questions.sort(() => Math.random() - 0.5);
+      //select the first 5 question from the random sorted questions
+      const selectedQuestions = [];
+      for (let i = 0; i < noQues; i++) {
+        selectedQuestions.push(shuffledQuestions[i]);
+      }
+      //calculate total duration for each question
+      let totalDuration = 0;
+      selectedQuestions.forEach((question) => {
+        totalDuration += question.duration;
+      });
+      //create an exam object
+      let exam = {
+        ...req.body,
+        _id: uniqid(),
+        examDate: new Date(),
+        isCompleted: false,
+        totalDuration: totalDuration,
+        questions: selectedQuestions,
+      };
+      //get exams object and push the new exam into it (with correct answers)
+      const exams = await getExams();
+      exams.push(exam);
+      //write the exam object into exams.json
+      await writeExams(exams);
+
+      //remove the correct answer and return it to the user
+      selectedQuestions.forEach((question) => {
+        question.answers.forEach((answer) => {
+          delete answer.isCorrect;
+        });
+      });
+      exam.questions = selectedQuestions;
+      res.status(200).send(exam);
     }
   } catch (error) {
     next(error);
@@ -72,11 +108,74 @@ router.post("/exam/start", async (req, res, next) => {
 // {
 //     question: 0, // index of the question
 //     answer: 1, // index of the answer
-// } // in this case, the answer for the first question is the second choice
+// }
+// in this case, the answer for the first question is the second choice
 // When the answer is provided, the result is kept into the exam and the score is updated accordingly.
 // It should not be possible to answer the same question twice.
-router.post("/exam/{id}/answer", async (req, res, next) => {
+router.post("/exam/:examId/answer", async (req, res, next) => {
   try {
+    //get all exams to find selected exam
+    const exams = await getExams();
+    const selectedExam = exams.find((exam) => exam._id === req.params.examId);
+    if (selectedExam) {
+      //remove selected exam from all exam so we can add updated exam to it
+      const examsWithoutSelected = exams.filter(
+        (exam) => exam._id !== req.params.examId
+      );
+
+      //check if answer is already provided
+      if (selectedExam.questions[req.body.question].providedAnswer) {
+        res.send("Answer Provided. Move on.");
+      } else {
+        //add provided answer into question
+        selectedExam.questions[req.body.question].providedAnswer =
+          req.body.answer;
+        //add score into exam
+        let score = 0;
+        if (selectedExam.score) {
+          score = selectedExam.score;
+        } else {
+          score = 0;
+        }
+        //if answer is correct increase score
+        if (
+          selectedExam.questions[req.body.question].answers[req.body.answer]
+            .isCorrect
+        ) {
+          score++;
+        }
+        //add updated exam into exams
+        selectedExam.score = score;
+        //count number of answered question
+        let counter = 0;
+        selectedExam.questions.forEach((question) => {
+          if (question.providedAnswer) {
+            counter++;
+          }
+        });
+
+        //update isCompleted
+        if (counter === selectedExam.questions.length) {
+          selectedExam.isCompleted = true;
+        }
+        console.log(counter, selectedExam.questions.length);
+        examsWithoutSelected.push(selectedExam);
+        await writeExams(examsWithoutSelected);
+        //send selected answer as response
+        res
+          .status(200)
+          .send(
+            `You selected ${
+              selectedExam.questions[req.body.question].answers[req.body.answer]
+                .text
+            }`
+          );
+      }
+    } else {
+      const error = new Error();
+      error.httpStatusCode = 404;
+      next(error);
+    }
   } catch (error) {
     next(error);
   }
@@ -84,8 +183,23 @@ router.post("/exam/{id}/answer", async (req, res, next) => {
 
 //> GET /exams/{id}
 // Returns the information about the exam, including the current score.
-router.get("/exam/{id}", async (req, res, next) => {
+router.get("/exam/:examId", async (req, res, next) => {
   try {
+    const exams = await getExams();
+    const selectedExam = exams.find((exam) => exam._id === req.params.examId);
+    if (selectedExam) {
+      //remove the correct answer and return it to the user
+      selectedExam.questions.forEach((question) => {
+        question.answers.forEach((answer) => {
+          delete answer.isCorrect;
+        });
+      });
+      res.status(200).send(selectedExam);
+    } else {
+      const error = new Error();
+      error.httpStatusCode = 404;
+      next(error);
+    }
   } catch (error) {
     next(error);
   }

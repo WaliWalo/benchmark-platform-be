@@ -10,6 +10,7 @@ const {
 } = require("./errorHandling");
 const helmet = require("helmet");
 const exam = require("./services/exam");
+const questions = require("./services/questions");
 const port = process.env.PORT || 4000;
 const server = express();
 server.use(helmet());
@@ -17,6 +18,7 @@ server.use(cors());
 server.use(express.json());
 
 server.use("/", exam);
+server.use("/questions", questions);
 
 server.use(badRequestHandler);
 server.use(notFoundHandler);
