@@ -92,6 +92,9 @@ router.post("/exam/start", async (req, res, next) => {
       let totalDuration = 0;
       selectedQuestions.forEach((question) => {
         totalDuration += question.duration;
+        let answers = question.answers;
+        answers = answers.sort(() => Math.random() - 0.5);
+        question.answers = answers;
       });
       //create an exam object
       let exam = {
